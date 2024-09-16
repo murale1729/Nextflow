@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-// Define input (S3) and output directories (S3)
+// Define input and output directories using S3 for the input and final output
 params.image_dir = "s3://nextflow-bala/images"  // S3 input directory
 params.output_dir = "s3://nextflow-bala/output_images"  // S3 output directory
 
@@ -10,8 +10,8 @@ process loadImages {
 
     script:
     """
-    # List files in the S3 bucket and store them in image_paths.txt
-    aws s3 ls ${params.image_dir} --recursive | grep .jpg | awk '{print "${params.image_dir}/" \$4}' > image_paths.txt
+    # List only valid .jpg image files and ignore any Zone.Identifier files
+    aws s3 ls ${params.image_dir} --recursive | grep .jpg | grep -v Zone.Identifier | awk '{print "${params.image_dir}/" \$4}' > image_paths.txt
     """
 }
 
@@ -24,7 +24,7 @@ process resizeImages {
 
     script:
     """
-    # Download image from S3
+    # Download the image from S3
     aws s3 cp ${image_path} .
 
     # Extract the file name from the S3 path
