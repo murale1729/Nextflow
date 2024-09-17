@@ -11,7 +11,7 @@ process loadImages {
     script:
     """
     # List files in the S3 bucket and store them in image_paths.txt
-    aws s3 ls ${params.image_dir} --recursive | grep .jpg | awk '{print "${params.image_dir}/" \$4}' > image_paths.txt
+    aws s3 ls s3://nextflow-bala/images/ --recursive | grep .jpg | grep -v Zone.Identifier | awk '{print "s3://nextflow-bala/images/" substr($4, index($4, "/") + 1)}' > image_paths.txt
     """
 }
 
