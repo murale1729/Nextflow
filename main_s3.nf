@@ -20,48 +20,36 @@ process loadImages {
     aws s3api list-objects \
         --bucket ${params.bucket} \
         --prefix ${params.prefix} \
-        --query 'Contents[?contains(Key, \`.jpg\`)].Key' \
+        --query "Contents[?contains(Key, '.jpg')].Key" \
         --output text | grep -v Zone.Identifier > image_keys.txt
 
     # Construct full S3 paths without duplicating the prefix
-    awk '{print "s3://${params.bucket}/" \$1}' image_keys.txt > image_paths.txt
+    awk '{print "s3://${params.bucket}/"\$1}' image_keys.txt > image_paths.txt
     """
 }
 
-// ... (Other processes remain similar, but remove aws s3 cp commands)
+// ... (Other processes remain similar, ensuring proper escaping and variable interpolation)
 
-process convertToPNG {
+process resizeImages {
     input:
-    path watermarked_image
+    val image_path
 
     output:
-    path "*.png", emit: png_images
-
-    publishDir "${params.output_dir}", mode: 'copy'
+    path "resized_*", emit: resized_images
 
     script:
     """
-    # Convert the watermarked image to PNG
-    output_file=\$(basename ${watermarked_image} .jpg).png
-    python3 ${projectDir}/scripts/convert_to_png.py ${watermarked_image} \${output_file}
+    # Download the image from S3
+    aws s3 cp ${image_path} .
+
+    # Extract the file name from the S3 path
+    image_file=\$(basename ${image_path})
+
+    # Resize the image
+    output_file="resized_\${image_file}"
+    python3 ${projectDir}/scripts/resize_image.py \${image_file} \${output_file}
     """
 }
 
-workflow {
-    // Run the loadImages process to get the image paths from S3
-    loadImages()
+// Continue with other processes...
 
-    // Read image paths from the output file and emit each line as an item in the channel
-    image_paths_channel = loadImages.out.image_paths.flatMap { file -> file.readLines() }
-
-    // Resize the images
-    resizeImages(image_paths_channel)
-
-    // Continue with the rest of your processes
-    convertToGrayscale(resizeImages.out.resized_images)
-    addWatermark(convertToGrayscale.out.gray_images)
-    convertToPNG(addWatermark.out.watermarked_images)
-
-    // Optionally, view the final PNG paths
-    convertToPNG.out.png_images.view()
-}
