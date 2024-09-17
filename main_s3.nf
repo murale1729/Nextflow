@@ -114,4 +114,11 @@ workflow {
     addWatermark(convertToGrayscale.out.gray_images)
 
     // Convert watermarked images to PNG format
-    convertTo
+    convertToPNG(addWatermark.out.watermarked_images)
+
+    // Upload final PNGs to S3
+    uploadToS3(convertToPNG.out.png_images)
+
+    // Optionally, view the final PNG paths in the local directory
+    convertToPNG.out.png_images.view()
+}
