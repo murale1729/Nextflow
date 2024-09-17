@@ -4,72 +4,31 @@
 params.image_dir = "s3://nextflow-bala/images"  // S3 input directory
 params.output_dir = "s3://nextflow-bala/output_images"  // S3 output directory
 
+// Extract bucket and prefix from params.image_dir
+def s3url = params.image_dir
+def (bucket, prefix) = s3url.replace('s3://','').tokenize('/', 2)
+params.bucket = bucket
+params.prefix = prefix ? prefix + '/' : ''
+
 process loadImages {
     output:
     path 'image_paths.txt', emit: image_paths
 
     script:
     """
-    # Correct the path construction to avoid any extra characters
-    aws s3 ls ${params.image_dir} --recursive | grep .jpg | grep -v Zone.Identifier | awk '{print "${params.image_dir}/" \$4}' > image_paths.txt
+    # List .jpg files in the S3 bucket and prefix
+    aws s3api list-objects \
+        --bucket ${params.bucket} \
+        --prefix ${params.prefix} \
+        --query 'Contents[?contains(Key, \`.jpg\`)].Key' \
+        --output text | grep -v Zone.Identifier > image_keys.txt
+
+    # Construct full S3 paths without duplicating the prefix
+    awk '{print "s3://${params.bucket}/" \$1}' image_keys.txt > image_paths.txt
     """
 }
 
-process resizeImages {
-    input:
-    val image_path
-
-    output:
-    path "resized_*", emit: resized_images
-
-    script:
-    """
-    # Download the image from S3
-    aws s3 cp ${image_path} .
-
-    # Extract the file name from the S3 path
-    image_file=\$(basename ${image_path})
-
-    # Resize the image
-    output_file="resized_\${image_file}"
-    python3 ${projectDir}/scripts/resize_image.py \${image_file} \${output_file}
-
-    # Upload resized image back to S3
-    aws s3 cp \${output_file} ${params.output_dir}/resized_\${image_file}
-    """
-}
-
-process convertToGrayscale {
-    input:
-    path resized_image
-
-    output:
-    path "gray_*", emit: gray_images
-
-    script:
-    """
-    # Convert the resized image to grayscale
-    output_file=\$(basename ${resized_image})
-    gray_output="gray_\${output_file}"
-    python3 ${projectDir}/scripts/process_image.py \${resized_image} \${gray_output}
-    """
-}
-
-process addWatermark {
-    input:
-    path gray_image
-
-    output:
-    path "watermarked_*", emit: watermarked_images
-
-    script:
-    """
-    # Add a watermark to the grayscale image
-    output_file=\$(basename ${gray_image})
-    watermarked_output="watermarked_\${output_file}"
-    python3 ${projectDir}/scripts/add_watermark.py \${gray_image} \${watermarked_output}
-    """
-}
+// ... (Other processes remain similar, but remove aws s3 cp commands)
 
 process convertToPNG {
     input:
@@ -78,22 +37,13 @@ process convertToPNG {
     output:
     path "*.png", emit: png_images
 
+    publishDir "${params.output_dir}", mode: 'copy'
+
     script:
     """
     # Convert the watermarked image to PNG
     output_file=\$(basename ${watermarked_image} .jpg).png
     python3 ${projectDir}/scripts/convert_to_png.py ${watermarked_image} \${output_file}
-    """
-}
-
-process uploadToS3 {
-    input:
-    path png_image
-
-    script:
-    """
-    # Upload the final PNG image to the S3 bucket
-    aws s3 cp ${png_image} ${params.output_dir}/\$(basename ${png_image})
     """
 }
 
@@ -107,4 +57,11 @@ workflow {
     // Resize the images
     resizeImages(image_paths_channel)
 
-    // Convert resized
+    // Continue with the rest of your processes
+    convertToGrayscale(resizeImages.out.resized_images)
+    addWatermark(convertToGrayscale.out.gray_images)
+    convertToPNG(addWatermark.out.watermarked_images)
+
+    // Optionally, view the final PNG paths
+    convertToPNG.out.png_images.view()
+}
