@@ -10,8 +10,8 @@ process loadImages {
 
     script:
     """
-    # Correct the path to avoid double s3:// prefixes
-    aws s3 ls ${params.image_dir} --recursive | grep .jpg | grep -v Zone.Identifier | awk '{print "${params.image_dir}/" \$4}' > image_paths.txt
+    # Correctly build the path without duplicating the 'images/' folder
+    aws s3 ls ${params.image_dir} --recursive | grep .jpg | grep -v Zone.Identifier | awk '{print "s3://${params.image_dir}" substr(\$4, length("${params.image_dir}") - length("/images"))}' > image_paths.txt
     """
 }
 
@@ -114,11 +114,4 @@ workflow {
     addWatermark(convertToGrayscale.out.gray_images)
 
     // Convert watermarked images to PNG format
-    convertToPNG(addWatermark.out.watermarked_images)
-
-    // Upload final PNGs to S3
-    uploadToS3(convertToPNG.out.png_images)
-
-    // Optionally, view the final PNG paths in the local directory
-    convertToPNG.out.png_images.view()
-}
+    convertTo
